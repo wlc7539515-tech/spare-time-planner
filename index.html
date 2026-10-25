@@ -65,6 +65,19 @@
     cursor: pointer;
   }
 
+  .week-nav-btn {
+    font-size: 11px;
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 3px;
+    padding: 3px 6px;
+    cursor: pointer;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  .week-nav-btn:hover { background: var(--hover); }
+
   .week-display {
     font-size: 11px;
     color: var(--muted);
@@ -678,7 +691,9 @@
   <div class="planner-header">
     <div class="title">Spare Time</div>
     <div class="date-nav">
+      <button class="week-nav-btn" id="prevWeekBtn" type="button">◀</button>
       <input type="week" id="weekPicker">
+      <button class="week-nav-btn" id="nextWeekBtn" type="button">▶</button>
       <span class="week-display" id="weekDisplay">—</span>
     </div>
   </div>
@@ -957,6 +972,33 @@
       loadState();
       renderAll();
     });
+
+    function shiftWeek(delta) {
+      const picker = document.getElementById('weekPicker');
+      const val = picker.value;
+      if (!val) return;
+      const [y, w] = val.split('-W').map(Number);
+      let weekNum = w + delta;
+      let year = y;
+      if (weekNum < 1) {
+        year -= 1;
+        const lastWeek = getISOWeeks(year);
+        weekNum = lastWeek;
+      } else if (weekNum > getISOWeeks(year)) {
+        year += 1;
+        weekNum = 1;
+      }
+      picker.value = `${year}-W${String(weekNum).padStart(2,'0')}`;
+      picker.dispatchEvent(new Event('change'));
+    }
+
+    function getISOWeeks(year) {
+      const dec28 = new Date(year, 11, 28);
+      return Math.ceil(((dec28 - new Date(year, 0, 1)) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7);
+    }
+
+    document.getElementById('prevWeekBtn').addEventListener('click', () => shiftWeek(-1));
+    document.getElementById('nextWeekBtn').addEventListener('click', () => shiftWeek(1));
     document.getElementById('noteArea').addEventListener('input', e => {
       state.note = e.target.value; saveState();
     });
