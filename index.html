@@ -777,10 +777,9 @@
 <div class="add-form-overlay" id="syncOverlay">
   <div class="add-form sync-form">
     <h3>云同步设置</h3>
-    <input type="text" id="syncUrlInput" placeholder="Supabase 项目地址 https://xxx.supabase.co">
-    <input type="text" id="syncKeyInput" placeholder="Supabase anon key">
-    <input type="text" id="syncSidInput" placeholder="同步码（留空自动生成，两台设备需填同一个）">
-    <div class="sync-hint">手机和电脑填相同内容即可共享记录</div>
+    <input type="text" id="syncTokenInput" placeholder="GitHub 个人访问令牌（需勾选 gist 权限）">
+    <div class="sync-hint">手机和电脑填同一个令牌，即可共享所有记录。令牌只存在你的浏览器里，不会上传到别处。</div>
+    <div class="sync-hint">获取令牌：github.com → Settings → Developer settings → Personal access tokens → 新建，勾选 gist</div>
     <div class="btn-row">
       <button class="btn-small" id="syncSaveBtn">保存并同步</button>
       <button class="btn-small cancel" id="syncCancelBtn">取消</button>
@@ -982,9 +981,7 @@
     // Sync config
     document.getElementById('syncBtn').addEventListener('click', () => {
       if (syncConf) {
-        document.getElementById('syncUrlInput').value = syncConf.url || '';
-        document.getElementById('syncKeyInput').value = syncConf.key || '';
-        document.getElementById('syncSidInput').value = syncConf.sid || '';
+        document.getElementById('syncTokenInput').value = syncConf.token || '';
       }
       document.getElementById('syncOverlay').classList.add('active');
     });
@@ -992,12 +989,9 @@
       document.getElementById('syncOverlay').classList.remove('active');
     });
     document.getElementById('syncSaveBtn').addEventListener('click', async () => {
-      const url = document.getElementById('syncUrlInput').value.trim();
-      const key = document.getElementById('syncKeyInput').value.trim();
-      let sid = document.getElementById('syncSidInput').value.trim();
-      if (!url || !key) { alert('请填写 Supabase 地址和 anon key'); return; }
-      if (!sid) sid = 'p_' + Math.random().toString(36).slice(2, 10);
-      saveSyncConf({ url, key, sid });
+      const token = document.getElementById('syncTokenInput').value.trim();
+      if (!token) { alert('请填写 GitHub 个人访问令牌'); return; }
+      saveSyncConf({ token });
       document.getElementById('syncOverlay').classList.remove('active');
       const remote = await pullRemote();
       if (applyRemoteDoc(remote)) {
@@ -1255,7 +1249,9 @@
     }
   }
 
-  // ---------- Cloud sync (Supabase) ----------
+  // ---------- Cloud sync (GitHub Gist) ----------
+  const GIST_ID = 'e768a2f021cb44f77e082f2d9bcb379d';
+  const GIST_FILE = 'planner.json';
   const SYNC_CONF_KEY = 'planner-sync-conf';
   let syncConf = null;
   let syncApplying = false;
@@ -1277,7 +1273,7 @@
   }
 
   function syncReady() {
-    return !!(syncConf && syncConf.url && syncConf.key && syncConf.sid);
+    return !!(syncConf && syncConf.token);
   }
 
   function updateSyncBadge(extra) {
@@ -1306,23 +1302,24 @@
     };
   }
 
-  function syncHeaders() {
+  function gistHeaders() {
     return {
-      'apikey': syncConf.key,
-      'Authorization': 'Bearer ' + syncConf.key
+      'Authorization': 'token ' + syncConf.token,
+      'Accept': 'application/vnd.github+json'
     };
   }
 
   async function pullRemote() {
     if (!syncReady()) return null;
     try {
-      const base = syncConf.url.replace(/\/$/, '');
-      const res = await fetch(`${base}/rest/v1/planner?id=eq.${encodeURIComponent(syncConf.sid)}&select=data`, {
-        headers: syncHeaders()
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        headers: gistHeaders()
       });
       if (!res.ok) return null;
-      const rows = await res.json();
-      return (rows && rows[0]) ? rows[0].data : null;
+      const gist = await res.json();
+      const f = gist.files && gist.files[GIST_FILE];
+      if (!f || !f.content) return null;
+      return JSON.parse(f.content);
     } catch { return null; }
   }
 
@@ -1330,18 +1327,14 @@
     if (!syncReady() || syncBusy) return false;
     syncBusy = true;
     try {
-      const base = syncConf.url.replace(/\/$/, '');
-      const res = await fetch(`${base}/rest/v1/planner`, {
-        method: 'POST',
-        headers: Object.assign(syncHeaders(), {
-          'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        method: 'PATCH',
+        headers: Object.assign(gistHeaders(), {
+          'Content-Type': 'application/json'
         }),
-        body: JSON.stringify([{
-          id: syncConf.sid,
-          data: doc,
-          updated_at: new Date(doc.updatedAt).toISOString()
-        }])
+        body: JSON.stringify({
+          files: { [GIST_FILE]: { content: JSON.stringify(doc) } }
+        })
       });
       return res.ok;
     } catch { return false; }
