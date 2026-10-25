@@ -1034,6 +1034,9 @@
       const token = document.getElementById('syncTokenInput').value.trim();
       if (!token) { alert('请填写 GitHub 个人访问令牌'); return; }
       saveSyncConf({ token });
+      // 重置同步时间戳，确保首次拉取能应用云端数据
+      syncLastChange = 0;
+      localStorage.removeItem('planner-updated-at');
       document.getElementById('syncOverlay').classList.remove('active');
       const remote = await pullRemote();
       if (applyRemoteDoc(remote)) {
@@ -1378,8 +1381,21 @@
           files: { [GIST_FILE]: { content: JSON.stringify(doc) } }
         })
       });
-      return res.ok;
-    } catch { return false; }
+      if (res.ok) {
+        syncLastChange = doc.updatedAt;
+        localStorage.setItem('planner-updated-at', String(doc.updatedAt));
+        updateSyncBadge('☁ 已同步云端');
+        return true;
+      }
+      const errText = await res.text().catch(() => '');
+      updateSyncBadge('☁ 同步失败 ' + res.status);
+      console.error('push failed', res.status, errText);
+      return false;
+    } catch (e) {
+      updateSyncBadge('☁ 同步失败');
+      console.error('push error', e);
+      return false;
+    }
     finally { syncBusy = false; }
   }
 
@@ -1402,7 +1418,6 @@
 
   function schedulePush() {
     if (!syncReady() || syncApplying) return;
-    syncLastChange = Date.now();
     clearTimeout(syncPushTimer);
     syncPushTimer = setTimeout(() => { pushRemote(collectDoc()); }, 900);
   }
@@ -1428,7 +1443,6 @@
       reward: state.reward
     };
     localStorage.setItem('weekly-planner', JSON.stringify(all));
-    localStorage.setItem('planner-updated-at', String(Date.now()));
     schedulePush();
     showSave();
   }
